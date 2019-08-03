@@ -1,52 +1,80 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log"
 	"net/http"
+	"os"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/appengine"
+	"google.golang.org/appengine/urlfetch"
 
 	"github.com/phille97/bostadskoe/provider"
 	"github.com/phille97/bostadskoe/provider/bostadstockholm"
+	"github.com/phille97/bostadskoe/provider/senate"
 )
 
-var (
-	providers map[string]provider.Provider
-	db        *firestore.Client
-)
+func allProviders(ctx context.Context) (*map[string]provider.Provider, error) {
+	var err error
+	providers := map[string]provider.Provider{}
+
+	httpClient := urlfetch.Client(ctx)
+
+	providers["bostadstockholm"], err = bostadstockholm.New("https://bostad.stockholm.se", httpClient)
+	if err != nil {
+		return nil, err
+	}
+
+	providers["senate"], err = senate.New("http://senate.se", httpClient)
+	if err != nil {
+		return nil, err
+	}
+
+	return &providers, nil
+}
 
 func main() {
-	var err error
-	ctx := appengine.BackgroundContext()
-
-	db, err = firestore.NewClient(ctx, "bostadskoe")
-	if err != nil {
-		panic(err)
-	}
-
-	providers["bostadstockholm"], err = bostadstockholm.New()
-	if err != nil {
-		panic(err)
-	}
 	http.HandleFunc("/tasks/refresh", handleTaskRefresh)
 	http.HandleFunc("/", handle)
 	appengine.Main()
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "github.com/phille97/bostadskoe")
+	http.Error(w, "github.com/phille97/bostadskoe", http.StatusOK)
 }
 
 func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
+        if r.Header.Get("X-Appengine-Cron") != "true" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        }
+
 	ctx := appengine.NewContext(r)
-	for name, provider := range providers {
+
+	stderr := log.New(os.Stderr, "", 0)
+
+	db, err := firestore.NewClient(ctx, "bostadskoe")
+	if err != nil {
+		stderr.Println(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	providers, err := allProviders(ctx)
+	if err != nil {
+		stderr.Println(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for name, provider := range *providers {
 		collection := db.Collection(name)
 
 		residenceSlice, err := provider.CurrentResidences()
 		if err != nil {
-			w.WriteHeader(500)
-			fmt.Fprintln(w, err.Error())
+			stderr.Println(err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -54,12 +82,12 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 			item := collection.Doc(residence.ID())
 			_, err = item.Set(ctx, residence)
 			if err != nil {
-				w.WriteHeader(500)
-				fmt.Fprintln(w, err.Error())
+				stderr.Println(err.Error())
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 	}
 
-	fmt.Fprintln(w, "Done")
+	http.Error(w, "done", http.StatusOK)
 }

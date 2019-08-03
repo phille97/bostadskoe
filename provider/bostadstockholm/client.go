@@ -14,15 +14,15 @@ type Client struct {
 	httpClient *http.Client
 }
 
-func New() (*Client, error) {
-	u, err := url.Parse("https://bostad.stockholm.se")
+func New(baseUrl string, httpClient *http.Client) (*Client, error) {
+	u, err := url.Parse(baseUrl)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
 		BaseURL:    u,
-		UserAgent:  "github.com/phille97/bostadskoe",
-		httpClient: http.DefaultClient,
+		UserAgent:  "Mozilla/5.0 (compatible; Bostadskoe/1.0; +https://github.com/phille97/bostadskoe)",
+		httpClient: httpClient,
 	}, nil
 }
 

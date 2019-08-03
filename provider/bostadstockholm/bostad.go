@@ -8,10 +8,10 @@ type Bostad struct {
 	AnnonsId          int
 	Stadsdel          *string
 	Kommun            *string
-	Vaning            *int
-	AntalRum          *int
-	Yta               *int
-	Hyra              *int
+	Vaning            *float64
+	AntalRum          *float64
+	Yta               *float64
+	Hyra              *float64
 	AnnonseradTill    *string
 	AnnonseradFran    *string
 	KoordinatLongitud *float64
@@ -42,8 +42,8 @@ type Bostad struct {
 	}
 	ArInloggad                bool
 	LiknandeLagenhetStatistik *struct {
-		KotidFordelningQ1 int
-		KotidFordelningQ2 int
+		KotidFordelningQ1 float64
+		KotidFordelningQ2 float64
 	}
 }
 
