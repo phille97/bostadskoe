@@ -41,17 +41,18 @@ func main() {
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=2592000")
 	http.Error(w, "github.com/phille97/bostadskoe", http.StatusOK)
 }
 
 func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
-        if r.Header.Get("X-Appengine-Cron") != "true" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-        }
-
 	ctx := appengine.NewContext(r)
-
 	stderr := log.New(os.Stderr, "", 0)
+
+	if r.Header.Get("X-Appengine-Cron") != "true" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	db, err := firestore.NewClient(ctx, "bostadskoe")
 	if err != nil {

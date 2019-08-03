@@ -105,8 +105,8 @@ func (s Scraper) AdDetails(u *url.URL) (*Bostad, error) {
 		case "Storlek:":
 			value = strings.TrimSuffix(value, " kvm")
 			value = strings.TrimSuffix(value, " m2")
-			value = strings.ReplaceAll(value, ".", "")
-			value = strings.ReplaceAll(value, ",", "")
+			value = strings.Replace(value, ".", "", -1)
+			value = strings.Replace(value, ",", "", -1)
 			yta, err := strconv.ParseFloat(value, 64)
 			if err == nil {
 				ad.Yta = &yta
@@ -117,8 +117,8 @@ func (s Scraper) AdDetails(u *url.URL) (*Bostad, error) {
 			value = strings.TrimSuffix(value, ":-/månad")
 			value = strings.TrimSuffix(value, ":-/mån")
 			value = strings.TrimSuffix(value, ":-/mån (2017)")
-			value = strings.ReplaceAll(value, ".", "")
-			value = strings.ReplaceAll(value, ",", "")
+			value = strings.Replace(value, ".", "", -1)
+			value = strings.Replace(value, ",", "", -1)
 			hyra, err := strconv.ParseFloat(value, 64)
 			if err == nil {
 				ad.Hyra = &hyra
