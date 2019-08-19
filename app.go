@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/api/iterator"
 	"google.golang.org/appengine"
 	"google.golang.org/appengine/urlfetch"
 
@@ -41,8 +45,13 @@ func main() {
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "public, max-age=2592000")
 	http.Error(w, "github.com/phille97/bostadskoe", http.StatusOK)
+}
+
+type StoredResidence struct {
+	ID       string
+	LastSeen time.Time
+	Data     provider.Residence
 }
 
 func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
@@ -69,26 +78,78 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for name, provider := range *providers {
-		collection := db.Collection(name)
+	allErrs := sync.Map{}
+	var wg sync.WaitGroup
 
-		residenceSlice, err := provider.CurrentResidences()
-		if err != nil {
-			stderr.Println(err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	for pname, p := range *providers {
+		wg.Add(1)
+		go func(pname string, p provider.Provider) {
+			defer wg.Done()
 
-		for _, residence := range *residenceSlice {
-			item := collection.Doc(residence.ID())
-			_, err = item.Set(ctx, residence)
-			if err != nil {
-				stderr.Println(err.Error())
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+			out := make(chan provider.Residence)
+                        errs := make(chan error)
+                        defer close(errs)
+
+                        go func() {
+                            list := []error{}
+                            for err := range errs {
+                                list = append(list, err)
+                            }
+                            if len(list) > 0 {
+                                allErrs.Store(pname, list)
+                            }
+                        }()
+
+			go p.CurrentResidences(out, errs)
+
+			collection := db.Collection(pname)
+
+			now := time.Now()
+
+			for residence := range out {
+				item := collection.Doc(residence.ID())
+				_, err = item.Set(ctx, StoredResidence{
+					ID:       residence.ID(),
+					LastSeen: now,
+					Data:     residence,
+				})
+				if err != nil {
+					errs <- err
+				}
 			}
-		}
+
+			iter := collection.Where("LastSeen", "<", time.Now()).Documents(ctx)
+			defer iter.Stop()
+			for {
+				doc, err := iter.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					errs <- err
+					break
+				}
+				_, err = doc.Ref.Delete(ctx)
+				if err != nil {
+					errs <- err
+				}
+			}
+		}(pname, p)
 	}
 
-	http.Error(w, "done", http.StatusOK)
+	wg.Wait()
+
+	response := struct{
+            Errors *sync.Map,
+        }{
+            Errors: &allErrs,
+        }
+
+	if len(response.Errors) > 0 {
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
