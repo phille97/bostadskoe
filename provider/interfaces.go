@@ -5,5 +5,5 @@ type Residence interface {
 }
 
 type Provider interface {
-	CurrentResidences() (*[]Residence, error)
+	CurrentResidences(chan Residence, chan error)
 }

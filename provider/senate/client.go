@@ -25,7 +25,9 @@ func New(baseUrl string, httpClient *http.Client) (*Client, error) {
 	}, nil
 }
 
-func (c Client) CurrentResidences() (*[]provider.Residence, error) {
+func (c Client) CurrentResidences(out chan provider.Residence, errout chan error) {
+	defer close(out)
+
 	s := NewScraper(&c, c.httpClient)
 
 	kommuner := map[*url.URL]string{
@@ -37,29 +39,22 @@ func (c Client) CurrentResidences() (*[]provider.Residence, error) {
 		c.BaseURL.ResolveReference(&url.URL{Path: "/koping/bostader"}):    "Köping",
 	}
 
-	bostader := []Bostad{}
-
 	for listUrl, kommun := range kommuner {
 		ads, err := s.Ads(listUrl)
 		if err != nil {
-			return nil, err
+			errout <- err
+			return
 		}
 
 		for _, ad := range *ads {
 			bostad, err := s.AdDetails(&ad)
 			if err != nil {
-				return nil, err
+				errout <- err
+				return
 			}
 			bostad.Kommun = &kommun
 
-			bostader = append(bostader, *bostad)
+			out <- bostad
 		}
 	}
-
-	residenceSlice := make([]provider.Residence, len(bostader))
-	for i, b := range bostader {
-		residenceSlice[i] = b
-	}
-
-	return &residenceSlice, nil
 }

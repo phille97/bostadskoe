@@ -26,11 +26,14 @@ func New(baseUrl string, httpClient *http.Client) (*Client, error) {
 	}, nil
 }
 
-func (c Client) CurrentResidences() (*[]provider.Residence, error) {
+func (c Client) CurrentResidences(out chan provider.Residence, errout chan error) {
+	defer close(out)
+
 	u := c.BaseURL.ResolveReference(&url.URL{Path: "/Lista/AllaAnnonser"})
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return nil, err
+		errout <- err
+		return
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -38,20 +41,19 @@ func (c Client) CurrentResidences() (*[]provider.Residence, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		errout <- err
+		return
 	}
 	defer resp.Body.Close()
 
 	var bostader []Bostad
 	err = json.NewDecoder(resp.Body).Decode(&bostader)
 	if err != nil {
-		return nil, err
+		errout <- err
+		return
 	}
 
-	residenceSlice := make([]provider.Residence, len(bostader))
-	for i, b := range bostader {
-		residenceSlice[i] = b
+	for _, b := range bostader {
+		out <- b
 	}
-
-	return &residenceSlice, nil
 }
