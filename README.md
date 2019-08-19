@@ -1,2 +1,2 @@
-![bostad](https://raw.githubusercontent.com/phille97/bostadskoe/master/frontend/src/assets/hus.png)
+![bostad](https://raw.githubusercontent.com/phille97/bostadskoe/master/frontend/src/assets/logo.png)
 ### Bostadskoe
