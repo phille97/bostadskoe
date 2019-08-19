@@ -27,6 +27,7 @@ func New(baseUrl string, httpClient *http.Client) (*Client, error) {
 
 func (c Client) CurrentResidences(out chan provider.Residence, errout chan error) {
 	defer close(out)
+	defer close(errout)
 
 	s := NewScraper(&c, c.httpClient)
 

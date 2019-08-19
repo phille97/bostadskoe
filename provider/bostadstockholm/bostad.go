@@ -2,6 +2,8 @@ package bostadstockholm
 
 import (
 	"strconv"
+
+	"github.com/phille97/bostadskoe/provider"
 )
 
 type Bostad struct {
@@ -49,4 +51,65 @@ type Bostad struct {
 
 func (b Bostad) ID() string {
 	return strconv.Itoa(b.AnnonsId)
+}
+
+func (b Bostad) Data() provider.ResidenceData {
+	features := []provider.ResidenceFeatures{}
+
+	features = append(features, provider.ResidenceFeatures{
+		Category: "exterior",
+		Key:      "balcony",
+		Value:    b.Balkong,
+	})
+
+	features = append(features, provider.ResidenceFeatures{
+		Category: "exterior",
+		Key:      "elevator",
+		Value:    b.Hiss,
+	})
+
+	if b.Student {
+		features = append(features, provider.ResidenceFeatures{
+			Category: "rentalconditions",
+			Key:      "student",
+			Value:    b.Student,
+		})
+	}
+
+	if b.Ungdom {
+		features = append(features, provider.ResidenceFeatures{
+			Category: "rentalconditions",
+			Key:      "youth",
+			Value:    b.Ungdom,
+		})
+	}
+
+	if b.Senior {
+		features = append(features, provider.ResidenceFeatures{
+			Category: "rentalconditions",
+			Key:      "senior",
+			Value:    b.Senior,
+		})
+	}
+
+	if b.Korttid {
+		features = append(features, provider.ResidenceFeatures{
+			Category: "rentalconditions",
+			Key:      "short-term",
+			Value:    b.Korttid,
+		})
+	}
+
+	return provider.ResidenceData{
+		RentPerMonth: b.Hyra,
+		Currency:     "SEK",
+		Rooms:        b.AntalRum,
+		LivingArea:   b.Yta,
+		Features:     features,
+		Longitude:    b.KoordinatLongitud,
+		Latitude:     b.KoordinatLatitud,
+		Municipality: b.Kommun,
+		Area:         b.Stadsdel,
+		Url:          b.Url,
+	}
 }
