@@ -28,6 +28,7 @@ func New(baseUrl string, httpClient *http.Client) (*Client, error) {
 
 func (c Client) CurrentResidences(out chan provider.Residence, errout chan error) {
 	defer close(out)
+	defer close(errout)
 
 	u := c.BaseURL.ResolveReference(&url.URL{Path: "/Lista/AllaAnnonser"})
 	req, err := http.NewRequest("GET", u.String(), nil)
@@ -54,6 +55,13 @@ func (c Client) CurrentResidences(out chan provider.Residence, errout chan error
 	}
 
 	for _, b := range bostader {
+		if b.Url == nil {
+			continue
+		}
+
+		url := c.BaseURL.ResolveReference(&url.URL{Path: *b.Url}).String()
+		b.Url = &url
+
 		out <- b
 	}
 }

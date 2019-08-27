@@ -1,19 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 	"google.golang.org/appengine"
+	"google.golang.org/appengine/log"
+	"google.golang.org/appengine/mail"
 	"google.golang.org/appengine/urlfetch"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/phille97/bostadskoe/notification"
 	"github.com/phille97/bostadskoe/provider"
 	"github.com/phille97/bostadskoe/provider/bostadstockholm"
 	"github.com/phille97/bostadskoe/provider/senate"
@@ -50,13 +55,13 @@ func handle(w http.ResponseWriter, r *http.Request) {
 
 type StoredResidence struct {
 	ID       string
-	LastSeen time.Time
-	Data     provider.Residence
+	LastSeen int64
+	Data     provider.ResidenceData
+	Raw      interface{}
 }
 
 func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
-	stderr := log.New(os.Stderr, "", 0)
 
 	if r.Header.Get("X-Appengine-Cron") != "true" {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -65,7 +70,7 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 
 	db, err := firestore.NewClient(ctx, "bostadskoe")
 	if err != nil {
-		stderr.Println(err.Error())
+		log.Errorf(ctx, "could not connect to firestore: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -73,12 +78,13 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 
 	providers, err := allProviders(ctx)
 	if err != nil {
-		stderr.Println(err.Error())
+		log.Errorf(ctx, "could not get providers: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	allErrs := sync.Map{}
+	allErrs := []error{}
+	newProperties := []provider.ResidenceData{}
 	var wg sync.WaitGroup
 
 	for pname, p := range *providers {
@@ -86,39 +92,47 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 		go func(pname string, p provider.Provider) {
 			defer wg.Done()
 
-			out := make(chan provider.Residence)
-                        errs := make(chan error)
-                        defer close(errs)
-
-                        go func() {
-                            list := []error{}
-                            for err := range errs {
-                                list = append(list, err)
-                            }
-                            if len(list) > 0 {
-                                allErrs.Store(pname, list)
-                            }
-                        }()
-
-			go p.CurrentResidences(out, errs)
+			log.Debugf(ctx, "syncing %s", pname)
 
 			collection := db.Collection(pname)
+			now := time.Now().UnixNano()
 
-			now := time.Now()
+			out := make(chan provider.Residence)
+			errs := make(chan error)
+			go p.CurrentResidences(out, errs)
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for err := range errs {
+					log.Errorf(ctx, "recived error from p.CurrentResidences: %v", err)
+					allErrs = append(allErrs, err)
+				}
+			}()
 
 			for residence := range out {
-				item := collection.Doc(residence.ID())
-				_, err = item.Set(ctx, StoredResidence{
+				log.Debugf(ctx, "[%s] updating residence with ID %s", pname, residence.ID())
+
+				toBeStored := StoredResidence{
 					ID:       residence.ID(),
 					LastSeen: now,
-					Data:     residence,
-				})
+					Data:     residence.Data(),
+					Raw:      residence,
+				}
+
+				item := collection.Doc(residence.ID())
+				_, err = item.Get(ctx)
+				if status.Code(err) == codes.NotFound {
+					newProperties = append(newProperties, toBeStored.Data)
+				}
+				_, err = item.Set(ctx, toBeStored)
 				if err != nil {
-					errs <- err
+					log.Errorf(ctx, "could not save residence: %v", err)
+					allErrs = append(allErrs, err)
 				}
 			}
 
-			iter := collection.Where("LastSeen", "<", time.Now()).Documents(ctx)
+			iter := collection.Where("LastSeen", "<", now).Documents(ctx)
 			defer iter.Stop()
 			for {
 				doc, err := iter.Next()
@@ -126,12 +140,15 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				if err != nil {
-					errs <- err
+					log.Errorf(ctx, "could not fetch obsolete residence for removal: %v", err)
+					allErrs = append(allErrs, err)
 					break
 				}
+				log.Debugf(ctx, "[%s] removing obsolete residence with ID %s", pname, doc.Ref.ID)
 				_, err = doc.Ref.Delete(ctx)
 				if err != nil {
-					errs <- err
+					log.Errorf(ctx, "could not remove obsolete residence: %v", err)
+					allErrs = append(allErrs, err)
 				}
 			}
 		}(pname, p)
@@ -139,11 +156,40 @@ func handleTaskRefresh(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 
-	response := struct{
-            Errors *sync.Map,
-        }{
-            Errors: &allErrs,
-        }
+	if len(newProperties) > 0 {
+		templateData := notification.NewPropertiesEmailTemplateData{
+			RecipientFirstname: "Philip",
+			Residences:         newProperties,
+		}
+
+		emailBodyBuf := new(bytes.Buffer)
+		err = notification.NewPropertiesEmailTemplate.Execute(emailBodyBuf, templateData)
+		if err != nil {
+			log.Errorf(ctx, "error generating email from template: %v", err)
+			allErrs = append(allErrs, err)
+		}
+
+		log.Debugf(ctx, "sending email with %d new properties", len(newProperties))
+
+		msg := &mail.Message{
+			Sender:   "Bostadskoe <no-reply@bostadskoe.appspotmail.com>",
+			To:       []string{"Phi <phi+bostadskoe@qgr.se>"},
+			Subject:  fmt.Sprintf("Found %d new rental apartments", len(newProperties)),
+			HTMLBody: emailBodyBuf.String(),
+		}
+		if err := mail.Send(ctx, msg); err != nil {
+			log.Errorf(ctx, "email failed to send: %v", err)
+			allErrs = append(allErrs, err)
+		}
+	}
+
+	response := struct {
+		Errors []error
+	}{
+		Errors: allErrs,
+	}
+
+	log.Debugf(ctx, "finished sync, total errors: %d", len(response.Errors))
 
 	if len(response.Errors) > 0 {
 		w.WriteHeader(http.StatusInternalServerError)

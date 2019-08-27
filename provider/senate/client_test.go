@@ -22,9 +22,7 @@ func TestCurrentResidences(t *testing.T) {
 		t.Log(residence)
 	}
 
-	close(errs)
-
 	for err := range errs {
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
 }
