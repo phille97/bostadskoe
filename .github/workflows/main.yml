@@ -6,7 +6,8 @@ on:
       - master
 
 jobs:
-  build-frontend:
+  build-js:
+    name: Build js
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -22,8 +23,8 @@ jobs:
       env:
         CI: true
 
-  test:
-    name: Test
+  test-go:
+    name: Test go
     runs-on: ubuntu-latest
     steps:
     - name: Set up Go 1.12
@@ -40,6 +41,7 @@ jobs:
 
   deploy:
     name: Deploy
+    needs: [build-js, test-go]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
@@ -48,4 +50,4 @@ jobs:
           PROJECT_ID: ${{secrets.GCLOUD_PROJECT_ID}}
           APPLICATION_CREDENTIALS: ${{secrets.GOOGLE_APPLICATION_CREDENTIALS}}
         with:
-          args: app deploy app.yaml
+          args: app deploy --quiet app.yaml
