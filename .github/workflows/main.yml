@@ -32,8 +32,8 @@ jobs:
       run: go test -v ./...
     - name: deploy to gcp app engine
       uses: exelban/gcloud@master
-        env:
-          PROJECT_ID: ${{secrets.GCLOUD_PROJECT_ID}}
-          APPLICATION_CREDENTIALS: ${{secrets.GOOGLE_APPLICATION_CREDENTIALS}}
-        with:
-          args: app deploy --quiet app.yaml
+      env:
+        PROJECT_ID: ${{secrets.GCLOUD_PROJECT_ID}}
+        APPLICATION_CREDENTIALS: ${{secrets.GOOGLE_APPLICATION_CREDENTIALS}}
+      with:
+        args: app deploy --quiet app.yaml
