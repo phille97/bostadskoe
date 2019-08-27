@@ -6,6 +6,22 @@ on:
       - master
 
 jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Use Node.js 12.x
+      uses: actions/setup-node@v1
+      with:
+        node-version: 12.x
+    - name: yarn install, build, and test
+      run: |
+        cd frontend/
+        yarn install
+        yarn run build
+      env:
+        CI: true
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -15,13 +31,10 @@ jobs:
       with:
         go-version: 1.12
       id: go
-
     - name: Check out code into the Go module directory
       uses: actions/checkout@v1
-      
     - name: Get dependencies
       run: go get -v -t -d ./...
-      
     - name: Test
       run: go test -v ./...
 
